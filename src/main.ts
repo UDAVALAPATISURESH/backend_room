@@ -9,7 +9,9 @@ async function bootstrap() {
   app.use(compression());
 
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+      "https://room-expense-tracker-6ktn.onrender.com"
+    ],
     credentials: true,
   });
 
