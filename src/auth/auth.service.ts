@@ -26,8 +26,12 @@ export class AuthService {
       },
     });
 
-    if (!user || !(await bcrypt.compare(dto.password, user.password))) {
-      throw new UnauthorizedException('Invalid mobile number or password');
+    if (!user) {
+      throw new UnauthorizedException('Invalid mobile number');
+    }
+
+    if (!(await bcrypt.compare(dto.password, user.password))) {
+      throw new UnauthorizedException('Incorrect password');
     }
 
     if (!user.isActive) {
@@ -110,6 +114,7 @@ export class AuthService {
 
     return {
       access_token: this.jwtService.sign(payload),
+      expiresIn: process.env.JWT_EXPIRES_IN || '1d',
       user: {
         id: user.id,
         name: user.name,

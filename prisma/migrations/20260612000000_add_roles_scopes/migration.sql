@@ -1,4 +1,4 @@
--- Migrate users.role enum -> roles/scopes tables (preserves existing data)
+-- Roles, scopes, and user role_id (upgrade from legacy Role enum)
 
 CREATE TABLE IF NOT EXISTS scopes (
   id TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -62,11 +62,17 @@ EXCEPTION
   WHEN duplicate_column THEN NULL;
 END $$;
 
-UPDATE users u
-SET role_id = r.id
-FROM roles r
-WHERE u.role_id IS NULL
-  AND r.slug = CASE WHEN u.role::text = 'ADMIN' THEN 'admin' ELSE 'member' END;
+DO $$ BEGIN
+  UPDATE users u
+  SET role_id = r.id
+  FROM roles r
+  WHERE u.role_id IS NULL
+    AND r.slug = CASE WHEN u.role::text = 'ADMIN' THEN 'admin' ELSE 'member' END;
+EXCEPTION
+  WHEN undefined_column THEN
+    UPDATE users u SET role_id = (SELECT id FROM roles WHERE slug = 'member' LIMIT 1)
+    WHERE u.role_id IS NULL;
+END $$;
 
 UPDATE users u
 SET role_id = (SELECT id FROM roles WHERE slug = 'member' LIMIT 1)
@@ -82,5 +88,20 @@ EXCEPTION
 END $$;
 
 ALTER TABLE users DROP COLUMN IF EXISTS role;
-
 DROP TYPE IF EXISTS "Role";
+
+-- Bill category
+DO $$ BEGIN
+  CREATE TYPE "BillCategory" AS ENUM ('ROOM_RENT', 'GAS', 'ELECTRIC', 'GROCERY', 'OTHER');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE bills ADD COLUMN category "BillCategory" NOT NULL DEFAULT 'OTHER';
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
+-- Unique mobile (nullable)
+CREATE UNIQUE INDEX IF NOT EXISTS users_mobile_key ON users(mobile) WHERE mobile IS NOT NULL;

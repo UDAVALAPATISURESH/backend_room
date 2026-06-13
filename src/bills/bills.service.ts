@@ -169,15 +169,19 @@ export class BillsService {
     }
 
     if (share.status === 'PAID') {
-      throw new BadRequestException('Already paid');
+      throw new BadRequestException('Already cleared');
+    }
+
+    if (share.status === 'REQUESTED') {
+      throw new BadRequestException('Payment request already sent');
     }
 
     const updated = await this.prisma.billShare.update({
       where: { id: shareId },
       data: {
-        status: 'PAID',
-        paymentDate: new Date(),
-        remarks: dto.remarks,
+        status: 'REQUESTED',
+        paymentDate: null,
+        remarks: dto.remarks ?? 'Payment request sent',
       },
       include: {
         bill: {
@@ -224,12 +228,22 @@ export class BillsService {
       throw new BadRequestException('Cannot update your own share — you paid upfront');
     }
 
+    if (dto.status === 'REQUESTED') {
+      throw new BadRequestException('Invalid status update');
+    }
+
     const updated = await this.prisma.billShare.update({
       where: { id: shareId },
       data: {
         status: dto.status,
         paymentDate: dto.status === 'PAID' ? new Date() : null,
-        remarks: dto.remarks ?? (dto.status === 'PAID' ? 'Confirmed by bill creator' : null),
+        remarks:
+          dto.remarks ??
+          (dto.status === 'PAID'
+            ? 'Approved by bill creator'
+            : share.status === 'REQUESTED'
+              ? 'Rejected by bill creator'
+              : 'Marked cleared by bill creator'),
       },
       include: {
         bill: {
@@ -297,7 +311,8 @@ export class BillsService {
     }));
 
     const paidCount = shares?.filter((s) => s.status === 'PAID').length ?? 0;
-    const pendingCount = shares?.filter((s) => s.status === 'PENDING').length ?? 0;
+    const pendingCount =
+      shares?.filter((s) => s.status === 'PENDING' || s.status === 'REQUESTED').length ?? 0;
 
     return {
       id: bill.id,

@@ -12,6 +12,7 @@ datasource db {
 enum PaymentStatus {
   PAID
   PENDING
+  REQUESTED
 }
 
 enum BillCategory {

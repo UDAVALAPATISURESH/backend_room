@@ -17,7 +17,7 @@ import { RolesModule } from '../roles/roles.module';
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('JWT_SECRET') || 'fallback-secret',
         signOptions: {
-          expiresIn: (config.get<string>('JWT_EXPIRES_IN') || '7d') as `${number}d`,
+          expiresIn: (config.get<string>('JWT_EXPIRES_IN') || '1d') as '1d',
         },
       }),
     }),

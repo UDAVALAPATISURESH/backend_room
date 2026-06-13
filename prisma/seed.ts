@@ -100,51 +100,9 @@ async function createRole(
 
 
 
-async function removeManagerRole() {
-
-  const manager = await prisma.roleDefinition.findUnique({
-
-    where: { slug: 'manager' },
-
-  });
-
-  if (!manager) return;
-
-
-
-  const member = await prisma.roleDefinition.findUnique({
-
-    where: { slug: 'member' },
-
-  });
-
-  if (member) {
-
-    await prisma.user.updateMany({
-
-      where: { roleId: manager.id },
-
-      data: { roleId: member.id },
-
-    });
-
-  }
-
-
-
-  await prisma.roleScope.deleteMany({ where: { roleId: manager.id } });
-
-  await prisma.roleDefinition.delete({ where: { id: manager.id } });
-
-}
-
-
-
 async function main() {
 
   await seedScopes();
-
-  await removeManagerRole();
 
 
 
@@ -180,47 +138,49 @@ async function main() {
 
 
 
-  const adminMobile = process.env.ADMIN_MOBILE || '9000000000';
+  const adminMobile = process.env.ADMIN_MOBILE;
 
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-
-  const adminName = process.env.ADMIN_NAME || 'Admin';
-
-  const adminEmail = process.env.ADMIN_EMAIL || `${adminMobile}@room.local`;
+  const adminPassword = process.env.ADMIN_PASSWORD;
 
 
 
-  const hashed = await bcrypt.hash(adminPassword, 10);
+  if (adminMobile && adminPassword) {
+
+    const hashed = await bcrypt.hash(adminPassword, 10);
+
+    await prisma.user.upsert({
+
+      where: { mobile: adminMobile },
+
+      update: { name: process.env.ADMIN_NAME || 'Admin', roleId: adminRole.id, password: hashed },
+
+      create: {
+
+        name: process.env.ADMIN_NAME || 'Admin',
+
+        email: process.env.ADMIN_EMAIL || `${adminMobile}@room.local`,
+
+        mobile: adminMobile,
+
+        password: hashed,
+
+        roleId: adminRole.id,
+
+      },
+
+    });
+
+    console.log('Admin user seeded for mobile:', adminMobile);
+
+  } else {
+
+    console.log('Skipped admin user — set ADMIN_MOBILE and ADMIN_PASSWORD in .env to create one.');
+
+  }
 
 
 
-  await prisma.user.upsert({
-
-    where: { mobile: adminMobile },
-
-    update: { name: adminName, roleId: adminRole.id, password: hashed },
-
-    create: {
-
-      name: adminName,
-
-      email: adminEmail,
-
-      mobile: adminMobile,
-
-      password: hashed,
-
-      roleId: adminRole.id,
-
-    },
-
-  });
-
-
-
-  console.log('Seed completed: Admin + Member roles, default admin user.');
-
-  console.log('Add members from Admin → Members page.');
+  console.log('Seed done: Admin + Member roles only. Add members from the app.');
 
 }
 

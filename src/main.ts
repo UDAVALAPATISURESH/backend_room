@@ -8,10 +8,15 @@ async function bootstrap() {
 
   app.use(compression());
 
+  const corsOrigins = [
+    process.env.FRONTEND_URL,
+    ...(process.env.NODE_ENV !== 'production'
+      ? ['http://localhost:3000', 'http://127.0.0.1:3000']
+      : []),
+  ].filter((origin): origin is string => Boolean(origin));
+
   app.enableCors({
-    origin: [
-      "https://room-expense-tracker-6ktn.onrender.com"
-    ],
+    origin: corsOrigins.length > 0 ? corsOrigins : true,
     credentials: true,
   });
 

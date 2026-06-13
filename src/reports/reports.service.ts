@@ -142,7 +142,12 @@ export class ReportsService {
           member: s.user.name,
           mobile: s.user.mobile ?? '-',
           amount: amt,
-          status: s.status === 'PAID' ? 'Cleared' : 'Pending',
+          status:
+            s.status === 'PAID'
+              ? 'Cleared'
+              : s.status === 'REQUESTED'
+                ? 'Awaiting approval'
+                : 'Pending',
           date: s.paymentDate
             ? s.paymentDate.toLocaleDateString('en-IN')
             : '-',

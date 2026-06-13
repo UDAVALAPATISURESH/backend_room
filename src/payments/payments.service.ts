@@ -16,7 +16,7 @@ export class PaymentsService {
     const payments = await this.prisma.payment.findMany({
       where,
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, mobile: true } },
         expense: { select: { id: true, month: true, year: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -74,7 +74,7 @@ export class PaymentsService {
         remarks: dto.remarks,
       },
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, mobile: true } },
         expense: { select: { id: true, month: true, year: true } },
       },
     });
@@ -120,6 +120,30 @@ export class PaymentsService {
     };
   }
 
+  async syncMemberPayments(userId: string) {
+    const eligible = await this.isRentPayer(userId);
+    if (!eligible) return;
+
+    const expenses = await this.prisma.monthlyExpense.findMany({
+      select: { id: true, amountPerMember: true },
+    });
+
+    for (const expense of expenses) {
+      await this.prisma.payment.upsert({
+        where: {
+          userId_expenseId: { userId, expenseId: expense.id },
+        },
+        update: {},
+        create: {
+          userId,
+          expenseId: expense.id,
+          amount: expense.amountPerMember,
+          status: 'PENDING',
+        },
+      });
+    }
+  }
+
   async getMemberDashboard(userId: string, month?: number, year?: number) {
     const now = new Date();
     const viewMonth = month ?? now.getMonth() + 1;
@@ -127,15 +151,20 @@ export class PaymentsService {
     const isCurrentMonth =
       viewMonth === now.getMonth() + 1 && viewYear === now.getFullYear();
 
-    const [user, expense, billShares, paymentHistory] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { name: true, mobile: true, email: true },
-      }),
-      this.prisma.monthlyExpense.findUnique({
-        where: { month_year: { month: viewMonth, year: viewYear } },
-        include: { payments: { where: { userId } } },
-      }),
+    await this.syncMemberPayments(userId);
+
+    const userPromise = this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, mobile: true, email: true },
+    });
+
+    const expense = await this.prisma.monthlyExpense.findUnique({
+      where: { month_year: { month: viewMonth, year: viewYear } },
+      include: { payments: { where: { userId } } },
+    });
+
+    const [user, billShares, allMonthBillShares, paymentHistory] = await Promise.all([
+      userPromise,
       this.prisma.billShare.findMany({
         where: {
           userId,
@@ -162,6 +191,17 @@ export class PaymentsService {
         },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.billShare.findMany({
+        where: {
+          bill: {
+            createdAt: {
+              gte: new Date(viewYear, viewMonth - 1, 1),
+              lt: new Date(viewYear, viewMonth, 1),
+            },
+          },
+        },
+        select: { amount: true, status: true },
+      }),
       this.prisma.payment.findMany({
         where: { userId },
         include: {
@@ -175,26 +215,38 @@ export class PaymentsService {
     ]);
 
     const myPayment = expense?.payments[0];
-    const roomRentAmount = myPayment
-      ? Number(myPayment.amount)
-      : expense
-        ? Number(expense.amountPerMember)
-        : 0;
+    const roomRentAmount = expense
+      ? Number(myPayment?.amount ?? expense.amountPerMember)
+      : 0;
 
     const roomPaid =
       myPayment?.status === 'PAID' ? Number(myPayment.amount) : 0;
     const roomPending =
-      myPayment?.status === 'PENDING' ? Number(myPayment.amount) : 0;
+      myPayment?.status === 'PENDING'
+        ? Number(myPayment.amount)
+        : expense && !myPayment
+          ? Number(expense.amountPerMember)
+          : 0;
 
     const billPending = billShares
-      .filter((s) => s.status === 'PENDING')
+      .filter((s) => s.status === 'PENDING' || s.status === 'REQUESTED')
       .reduce((sum, share) => sum + Number(share.amount), 0);
 
     const billPaidInMonth = billShares
       .filter((s) => s.status === 'PAID')
       .reduce((sum, share) => sum + Number(share.amount), 0);
 
-    const pendingBillCount = billShares.filter((s) => s.status === 'PENDING').length;
+    const membersBillPaid = allMonthBillShares
+      .filter((s) => s.status === 'PAID')
+      .reduce((sum, share) => sum + Number(share.amount), 0);
+
+    const membersBillPending = allMonthBillShares
+      .filter((s) => s.status === 'PENDING' || s.status === 'REQUESTED')
+      .reduce((sum, share) => sum + Number(share.amount), 0);
+
+    const pendingBillCount = billShares.filter(
+      (s) => s.status === 'PENDING' || s.status === 'REQUESTED',
+    ).length;
 
     const monthBills = billShares.map((s) => ({
       shareId: s.id,
@@ -234,6 +286,8 @@ export class PaymentsService {
         roomPending,
         billPending,
         billPaidInMonth,
+        membersBillPaid,
+        membersBillPending,
         pendingBillCount,
         totalPending: roomPending + billPending,
         totalPaidInMonth: roomPaid + billPaidInMonth,
@@ -246,6 +300,26 @@ export class PaymentsService {
         )
         .map((p) => this.serializePayment(p)),
     };
+  }
+
+  private async isRentPayer(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        isActive: true,
+        role: {
+          select: {
+            slug: true,
+            scopes: { select: { scope: { select: { key: true } } } },
+          },
+        },
+      },
+    });
+
+    if (!user?.isActive || user.role.slug === 'admin') return false;
+    if (user.role.slug === 'member') return true;
+
+    return user.role.scopes.some((rs) => rs.scope.key === 'dashboard.member');
   }
 
   private async getCurrentMonthPayments() {

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaymentsService } from '../payments/payments.service';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 const userSelect = {
@@ -20,7 +21,10 @@ const userSelect = {
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private paymentsService: PaymentsService,
+  ) {}
 
   async findAll() {
     const users = await this.prisma.user.findMany({
@@ -71,6 +75,9 @@ export class UsersService {
       },
       select: userSelect,
     });
+
+    await this.paymentsService.syncMemberPayments(user.id);
+
     return this.serializeUser(user);
   }
 
